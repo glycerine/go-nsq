@@ -3,6 +3,7 @@ package nsq
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"net"
@@ -44,7 +45,13 @@ func TestProducerConnection(t *testing.T) {
 	config := NewConfig()
 	laddr := "127.0.0.1"
 
-	config.LocalAddr, _ = net.ResolveTCPAddr("tcp", laddr+":0")
+	availPort := GetAvailPort()
+	// There's a race here between our binding availPort and some
+	// other external tcp client doing so. This is unfortunate, but
+	// difficult to avoid and still test that the Producer is
+	// using a specified port.
+	config.LocalAddr, _ = net.ResolveTCPAddr("tcp",
+		fmt.Sprintf("%s:%d", laddr, availPort))
 
 	w, _ := NewProducer("127.0.0.1:4150", config)
 	w.SetLogger(nullLogger, LogLevelInfo)
@@ -55,7 +62,7 @@ func TestProducerConnection(t *testing.T) {
 	}
 
 	conn := w.conn.(*Conn)
-	if !strings.HasPrefix(conn.conn.LocalAddr().String(), laddr) {
+	if !strings.HasPrefix(conn.conn.LocalAddr().String(), config.LocalAddr.String()) {
 		t.Fatal("producer connection should be bound to specified address:", conn.conn.LocalAddr())
 	}
 
@@ -65,6 +72,13 @@ func TestProducerConnection(t *testing.T) {
 	if err != ErrStopped {
 		t.Fatalf("should not be able to write after Stop()")
 	}
+}
+
+func GetAvailPort() int {
+	l, _ := net.Listen("tcp", ":0")
+	r := l.Addr()
+	l.Close()
+	return r.(*net.TCPAddr).Port
 }
 
 func TestProducerPing(t *testing.T) {
